@@ -15,10 +15,13 @@
 @synthesize locationManager = _locationManager;
 @synthesize delegate = _delegate;
 @synthesize timer = _timer;
+@synthesize timerDuration = _timerDuration;
 @synthesize userAPIToken = _userAPIToken;
 @synthesize managedObjectContext = _managedObjectContext;
 @synthesize positionRepo = _positionRepo;
 @synthesize serviceAvailable = _serviceAvailable;
+@synthesize lastLocation = _lastLocation;
+@synthesize locationDistance = _locationDistance;
 
 + (CuthbertJuxtapositionMonitor *)sharedMonitor {
     static CuthbertJuxtapositionMonitor *__sharedMonitor = nil;
@@ -33,6 +36,7 @@
     if (self = [super init]) {
         // put customized initialization logic here, if needed
         self.userAPIToken = @"50295f2e8822700200000002";
+        self.timerDuration = 60;
     }
     return self;
 }
@@ -64,27 +68,54 @@
         }];
         
         //Background Logic Here
-        NSLog(@"JuxMonitor::Background logic commencing...");
-        self.timer = [NSTimer scheduledTimerWithTimeInterval:60.0 target:self selector:@selector(startLocationServices) userInfo:nil repeats:YES];
-                       
-//        if (backgroundTask != UIBackgroundTaskInvalid) {
-//            [application endBackgroundTask:backgroundTask];
-//            backgroundTask = UIBackgroundTaskInvalid;
-//        }
-        
+        self.timer = [NSTimer scheduledTimerWithTimeInterval:self.timerDuration target:self selector:@selector(startLocationServices) userInfo:nil repeats:YES];
+    
     } else {
+        
         [self startLocationServices];
-        self.timer = [NSTimer scheduledTimerWithTimeInterval:60.0 target:self selector:@selector(startLocationServices) userInfo:nil repeats:YES];
+        self.timer = [NSTimer scheduledTimerWithTimeInterval:self.timerDuration target:self selector:@selector(startLocationServices) userInfo:nil repeats:YES];
     }
-
 }
 
-- (void) startLocationServices {    
-    if ([CLLocationManager locationServicesEnabled]) {
-        [self.locationManager startUpdatingLocation];       
-        NSLog(@"LocationService has been enabled.");
+- (void) invalidateTimer {
+    [self.timer invalidate];
+    self.timer = nil;
+}
+
+- (void) incrementTimerDuration {
+    if (self.timerDuration < 300) {
+        self.timerDuration += 60;
+        NSLog(@"Set timer duration to %d", self.timerDuration);
+        
+        [self invalidateTimer];
+        [self initTimer];
     } else {
-        NSLog(@"LocationService is not enabled.");
+        NSLog(@"Timer is already at max interval.  Keeping existing timer in place.");
+    }
+}
+
+- (void) resetTimerDuration {
+    if (self.timerDuration > 60) {
+        self.timerDuration = 60;
+        NSLog(@"Reset timer duration to %d seconds.", self.timerDuration);
+    
+        [self invalidateTimer];
+        [self initTimer];
+    } else {
+        NSLog(@"Timer is already at min interval.  Keeping existing timer in place.");
+    }
+}
+
+- (void) startLocationServices {
+    if (![CLLocationManager locationServicesEnabled]) {
+         NSLog(@"LocationService is not enabled.");
+    } else {
+        if (self.lastLocation == nil || [[[NSDate alloc] init] timeIntervalSinceDate:self.lastLocation.timestamp] > 45) {
+            [self.locationManager startUpdatingLocation];
+            NSLog(@"LocationServices have been started.");
+        } else {
+            NSLog(@"LocationServices were throttled.");
+        }
     }
 }
 
@@ -99,13 +130,40 @@
 }
 
 - (void) locationManager:(CLLocationManager *)manager didUpdateToLocation:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation {
-    if (self.delegate) {
-        [self.delegate locationUpdated:newLocation fromLocation:oldLocation];
-    }
-    
     NSLog(@"Location Updated!");
     [self stopLocationServices];
+    self.lastLocation = newLocation;
     
+    if (!oldLocation) {
+        //Initial Delegate notification
+        if (self.delegate) {
+            [self.delegate locationUpdated:newLocation fromLocation:oldLocation];
+        }
+        
+        //Process position
+        [self processPosition:newLocation fromLocation:oldLocation];
+    } else {
+    
+        //Delegate notification
+        if (self.delegate) {
+            [self.delegate locationUpdated:newLocation fromLocation:oldLocation];
+        }
+        
+        //Process position
+        [self processPosition:newLocation fromLocation:oldLocation];
+        
+        //Polling throttle
+        self.locationDistance = [newLocation distanceFromLocation:oldLocation];
+        
+        if (self.locationDistance > 100) {
+            [self resetTimerDuration];
+        } else {
+            [self incrementTimerDuration];
+        }
+    }
+}
+
+- (void) processPosition:(CLLocation *)newLocation fromLocation:(CLLocation *)oldLocation {
     if (![self.positionRepo isEmpty]) {
         
         NSLog(@"Positions: %@", [self.positionRepo.positions componentsJoinedByString:@" ||| "]);
@@ -115,7 +173,6 @@
             NSLog(@"Failed to store position locally.");
         }
         
-        // NEED TO ADD LOGIC TO ATTEMPT TO POST POSITIONS!!!
         [self processLocallyStoredPositions];
         
     } else {
@@ -127,24 +184,24 @@
         NSLog(@"Post Path String: %@", postPathString);
         
         [[CuthbertJuxtapositionAPIClient sharedClient]
-            postPath:postPathString
+         postPath:postPathString
          parameters:position
-            success:^(AFHTTPRequestOperation *operation, id JSON) {
-                NSLog(@"Response: %@", JSON);
-            }
-            failure:^(AFHTTPRequestOperation *operation, NSError *error) {
-                NSLog(@"Error posting to Juxtapose!");
-                NSLog(@"%@", error);
-                NSLog(@"Writing locally...");
-                                               
-                //Make call to store locally
-                if (![self.positionRepo insertPosition:newLocation.coordinate timestamp:newLocation.timestamp]) {
-                    //Handle local storage error; application should probably be restarted.
-                    NSLog(@"Failed to store position locally");
-                }
-            }];
+         success:^(AFHTTPRequestOperation *operation, id JSON) {
+             NSLog(@"Response: %@", JSON);
+         }
+         failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+             NSLog(@"Error posting to Juxtapose!");
+             NSLog(@"%@", error);
+             NSLog(@"Writing locally...");
+             
+             //Make call to store locally
+             if (![self.positionRepo insertPosition:newLocation.coordinate timestamp:newLocation.timestamp]) {
+                 //Handle local storage error; application should probably be restarted.
+                 NSLog(@"Failed to store position locally");
+             }
+         }];
     }
-    
+
 }
 
 - (void) processLocallyStoredPositions {

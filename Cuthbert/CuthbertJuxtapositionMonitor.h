@@ -23,13 +23,17 @@
 @property (nonatomic, strong) CLLocationManager *locationManager;
 @property (nonatomic, weak) id delegate;
 @property (nonatomic, strong) NSTimer *timer;
+@property (nonatomic) int timerDuration;
 @property (nonatomic, strong) NSString *userAPIToken;
 @property (nonatomic, weak) NSManagedObjectContext *managedObjectContext;
 @property (nonatomic, strong) PositionRepo *positionRepo;
 @property (nonatomic) BOOL serviceAvailable;
+@property (nonatomic, strong) CLLocation *lastLocation;
+@property (nonatomic) CLLocationDistance locationDistance;
 
 + (CuthbertJuxtapositionMonitor *)sharedMonitor;
 - (void)initTimer;
+- (void)invalidateTimer;
 - (void)startLocationServices;
 - (void)stopLocationServices;
 

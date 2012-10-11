@@ -43,8 +43,7 @@
     // Sent when the application is about to move from active to inactive state. This can occur for certain types of temporary interruptions (such as an incoming phone call or SMS message) or when the user quits the application and it begins the transition to the background state.
     // Use this method to pause ongoing tasks, disable timers, and throttle down OpenGL ES frame rates. Games should use this method to pause the game.
     NSLog(@"Application is resigning active state; diabling timer...");
-    [self.monitor.timer invalidate];
-    self.monitor.timer = nil;
+    [self.monitor invalidateTimer];
     
 }
 
@@ -78,8 +77,7 @@
     // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
     NSLog(@"Application became active; enabling timer...");
 //    self.monitor.timer = [NSTimer scheduledTimerWithTimeInterval:60.0 target:self.monitor selector:@selector(startLocationServices) userInfo:nil repeats:YES];
-    [self.monitor.timer invalidate];
-    self.monitor.timer = nil;
+    [self.monitor invalidateTimer];
     [self.monitor initTimer];
 }
 
@@ -87,7 +85,7 @@
 {
     // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
     NSLog(@"Application is terminating; turning off location services...");
-    [self.monitor.timer invalidate];
+    [self.monitor invalidateTimer];
     [self.monitor stopLocationServices];
     [self saveContext];
 }
